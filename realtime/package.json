@@ -1,0 +1,14 @@
+{
+  "name": "healthcare-realtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.5",
+    "ws": "^8.18.0"
+  }
+}
+
