@@ -58,11 +58,11 @@ export default function Signup() {
     try {
       const response = await authService.register(form);
       console.log("Registration successful:", response);
-      setToast({ message: `Account created successfully! Welcome ${response.user.name}. Redirecting to login...`, type: "success" });
+      setToast({ message: `Account created successfully! Welcome ${response.user.name}. Redirecting to home...`, type: "success" });
       
-      // Redirect to login page after a short delay to show success message
+      // Redirect to home page after a short delay to show success message
       setTimeout(() => {
-        navigate("/login");
+        navigate("/");
       }, 1500);
     } catch (err: any) {
       console.error("Registration error:", err);

@@ -70,6 +70,12 @@ function Nav() {
         </Link>
         <nav className="hidden md:flex gap-1 items-center">
           <Link
+            to="/"
+            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
+          >
+            Home
+          </Link>
+          <Link
             to="/doctors"
             className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
           >

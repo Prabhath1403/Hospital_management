@@ -239,6 +239,22 @@ export default function DoctorConsole() {
     return "text-red-600";
   };
 
+  // Derived stats
+  const todayStr = new Date().toDateString();
+  const todaysAppointments = appointments.filter(
+    (a) => new Date(a.datetime).toDateString() === todayStr
+  );
+  const todayCompleted = todaysAppointments.filter(
+    (a) => a.status === "completed"
+  ).length;
+  const todayRemaining = todaysAppointments.filter(
+    (a) => a.status !== "completed"
+  ).length;
+  const totalPatients = new Set(appointments.map((a) => a.user_id)).size;
+  const totalCompleted = appointments.filter(
+    (a) => a.status === "completed"
+  ).length;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -247,18 +263,46 @@ export default function DoctorConsole() {
     );
   }
 
+  const user = authService.getUser();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            Doctor Console
+        <div className="mb-6">
+          <h1 className="text-4xl font-bold text-gray-800 mb-1">
+            👨‍⚕️ Doctor Console
           </h1>
-          <p className="text-gray-600">
-            Manage appointments, prescribe medicines, and track patient
-            compliance
-          </p>
+          <p className="text-gray-600">Welcome back, Dr. {user?.name}</p>
+        </div>
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+          <div className="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+            <span className="text-3xl mb-1">👥</span>
+            <p className="text-3xl font-bold text-blue-600">{totalPatients}</p>
+            <p className="text-xs text-gray-500 text-center mt-1">Total Patients Treated</p>
+          </div>
+          <div className="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+            <span className="text-3xl mb-1">📅</span>
+            <p className="text-3xl font-bold text-indigo-600">{todaysAppointments.length}</p>
+            <p className="text-xs text-gray-500 text-center mt-1">Today's Appointments</p>
+          </div>
+          <div className="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+            <span className="text-3xl mb-1">✅</span>
+            <p className="text-3xl font-bold text-green-600">{todayCompleted}</p>
+            <p className="text-xs text-gray-500 text-center mt-1">Done Today</p>
+          </div>
+          <div className="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+            <span className="text-3xl mb-1">⏳</span>
+            <p className="text-3xl font-bold text-orange-500">{todayRemaining}</p>
+            <p className="text-xs text-gray-500 text-center mt-1">Remaining Today</p>
+          </div>
+          <div className="bg-white rounded-xl shadow p-5 flex flex-col items-center">
+            <span className="text-3xl mb-1">🏆</span>
+            <p className="text-3xl font-bold text-purple-600">{totalCompleted}</p>
+            <p className="text-xs text-gray-500 text-center mt-1">All-time Completed</p>
+          </div>
         </div>
 
         {successMsg && (
