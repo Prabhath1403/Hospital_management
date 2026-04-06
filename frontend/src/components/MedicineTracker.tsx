@@ -7,6 +7,7 @@ interface Medicine {
   dosage: string;
   frequency: string;
   duration_days: number;
+  times_of_day?: string;
   start_date: string;
   notes?: string;
   is_completed: number;
@@ -17,6 +18,7 @@ interface DailyDose {
   id: number;
   medicine_id: number;
   dose_date: string;
+  time_of_day?: string;
   taken: number;
   confirmed_at: string | null;
 }
@@ -78,24 +80,36 @@ export default function MedicineTracker() {
     }
   };
 
-  const handleConfirmDose = async (medicineId: number, dateStr: string) => {
-    const key = `${medicineId}-${dateStr}`;
+  const handleConfirmDose = async (medicineId: number, dateStr: string, timeOfDay: string) => {
+    const key = `${medicineId}-${dateStr}-${timeOfDay}`;
     try {
       setConfirmingDoses((prev) => new Set([...prev, key]));
 
+      const timeQuery = timeOfDay !== "Regular Dose" ? `&time_of_day=${encodeURIComponent(timeOfDay)}` : "";
       await api.post(
-        `/medicines/${medicineId}/daily-doses/confirm?dose_date_str=${dateStr}`
+        `/medicines/${medicineId}/daily-doses/confirm?dose_date_str=${dateStr}${timeQuery}`
       );
 
       // Update the doses in state
-      setDailyDoses((prev) => ({
-        ...prev,
-        [medicineId]: prev[medicineId].map((dose) =>
-          dose.dose_date === dateStr
-            ? { ...dose, taken: 1, confirmed_at: new Date().toISOString() }
-            : dose
-        ),
-      }));
+      setDailyDoses((prev) => {
+        const currentDoses = prev[medicineId] || [];
+        const existingIndex = currentDoses.findIndex(
+           (d) => d.dose_date === dateStr && (d.time_of_day === timeOfDay || (!d.time_of_day && timeOfDay === "Regular Dose"))
+        );
+        
+        let newDoses;
+        if (existingIndex >= 0) {
+           newDoses = [...currentDoses];
+           newDoses[existingIndex] = { ...newDoses[existingIndex], taken: 1, confirmed_at: new Date().toISOString() };
+        } else {
+           newDoses = [...currentDoses, { id: Date.now(), medicine_id: medicineId, dose_date: dateStr, time_of_day: timeOfDay, taken: 1, confirmed_at: new Date().toISOString() }];
+        }
+        
+        return {
+          ...prev,
+          [medicineId]: newDoses,
+        };
+      });
     } catch (err) {
       console.error("Failed to confirm dose:", err);
       setError("Failed to confirm dose");
@@ -148,12 +162,14 @@ export default function MedicineTracker() {
 
   const getCompliancePercentage = (
     medicineId: number,
-    durationDays: number
+    durationDays: number,
+    timesCount: number
   ): number => {
     const doses = dailyDoses[medicineId] || [];
     const confirmedDoses = doses.filter((d) => d.taken === 1).length;
-    return durationDays > 0
-      ? Math.round((confirmedDoses / durationDays) * 100)
+    const totalExpected = durationDays * timesCount;
+    return totalExpected > 0
+      ? Math.round((confirmedDoses / totalExpected) * 100)
       : 0;
   };
 
@@ -191,14 +207,27 @@ export default function MedicineTracker() {
               medicine.duration_days
             );
             const isCompleted = medicine.is_completed === 1;
-            const progressPercent = Math.min(
+            
+            let progressPercent = Math.min(
               100,
               ((medicine.duration_days - daysLeft) / medicine.duration_days) *
                 100
             );
+            
+            let daysTaken = medicine.duration_days - daysLeft;
+            
+            // Override visually if they manually completed the entire course early
+            if (isCompleted) {
+              progressPercent = 100;
+              daysTaken = medicine.duration_days;
+            }
+
+            const times = medicine.times_of_day ? medicine.times_of_day.split(",").map(t => t.trim()) : ["Regular Dose"];
+
             const compliancePercent = getCompliancePercentage(
               medicine.id,
-              medicine.duration_days
+              medicine.duration_days,
+              times.length
             );
             const isExpanded = expandedMedicineId === medicine.id;
             const allDates = generateDailyDates(
@@ -261,7 +290,7 @@ export default function MedicineTracker() {
                     ></div>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    {medicine.duration_days - daysLeft} of{" "}
+                    {daysTaken} of{" "}
                     {medicine.duration_days} days taken
                   </p>
                 </div>
@@ -313,17 +342,13 @@ export default function MedicineTracker() {
                 >
                   {isExpanded ? "▼" : "▶"} Daily Tracker (
                   {medicineDoses.filter((d) => d.taken === 1).length}/
-                  {allDates.length})
+                  {allDates.length * times.length})
                 </button>
 
                 {isExpanded && (
                   <div className="mb-3 p-3 bg-slate-50 rounded border border-slate-200">
-                    <div className="grid grid-cols-7 gap-1">
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
                       {allDates.map((dateStr) => {
-                        const dose = medicineDoses.find(
-                          (d) => d.dose_date === dateStr
-                        );
-                        const isTaken = dose?.taken === 1;
                         const dateObj = new Date(dateStr);
                         const dayName = dateObj.toLocaleDateString("en-US", {
                           weekday: "short",
@@ -333,29 +358,30 @@ export default function MedicineTracker() {
                           dateStr === new Date().toISOString().split("T")[0];
 
                         return (
-                          <button
-                            key={dateStr}
-                            onClick={() =>
-                              !isTaken &&
-                              handleConfirmDose(medicine.id, dateStr)
-                            }
-                            disabled={
-                              isTaken ||
-                              confirmingDoses.has(`${medicine.id}-${dateStr}`)
-                            }
-                            className={`p-2 rounded text-center text-xs transition-all ${
-                              isTaken
-                                ? "bg-green-500 text-white"
-                                : isToday
-                                ? "bg-blue-100 text-blue-700 border-2 border-blue-500 hover:bg-blue-200"
-                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                            } disabled:opacity-50 disabled:cursor-not-allowed`}
-                            title={dateStr}
-                          >
-                            <div className="font-semibold">{dayName}</div>
-                            <div className="text-xs">{dayNum}</div>
-                            {isTaken && <div className="text-lg">✓</div>}
-                          </button>
+                          <div key={dateStr} className={`border bg-white rounded p-2 text-center flex flex-col ${isToday ? 'border-blue-400 ring-1 ring-blue-400' : 'border-slate-200'}`}>
+                             <div className={`font-bold text-xs p-1 rounded mb-2 ${isToday ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}`}>
+                                {dayName} {dayNum}
+                             </div>
+                             <div className="flex flex-col gap-1 flex-1">
+                                {times.map((t) => {
+                                   const dose = medicineDoses.find((d) => d.dose_date === dateStr && (d.time_of_day === t || (!d.time_of_day && t === "Regular Dose")));
+                                   const isTaken = dose?.taken === 1;
+                                   
+                                   return (
+                                     <button
+                                       key={t}
+                                       onClick={() => !isTaken && handleConfirmDose(medicine.id, dateStr, t)}
+                                       disabled={isTaken || confirmingDoses.has(`${medicine.id}-${dateStr}-${t}`)}
+                                       className={`px-1 py-1 rounded text-[0.65rem] font-semibold transition-colors ${
+                                         isTaken ? "bg-green-500 text-white" : "bg-slate-200 text-slate-700 hover:bg-cyan-100"
+                                       } disabled:opacity-50`}
+                                     >
+                                       {isTaken ? `✓ ${t}` : t}
+                                     </button>
+                                   )
+                                })}
+                             </div>
+                          </div>
                         );
                       })}
                     </div>

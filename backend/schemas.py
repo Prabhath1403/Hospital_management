@@ -47,6 +47,7 @@ class AppointmentOut(BaseModel):
     symptoms: Optional[str] = None
     payment: Optional[str] = None
     status: str = "scheduled"
+    diagnosis: Optional[str] = None
     completed_at: Optional[datetime] = None
 
     class Config:
@@ -122,6 +123,7 @@ class MedicineCreate(BaseModel):
     frequency: str  # e.g., "2 times daily"
     duration_days: int
     user_id: int  # patient ID
+    times_of_day: Optional[str] = None
     appointment_id: Optional[int] = None
     notes: Optional[str] = None
 
@@ -135,6 +137,7 @@ class MedicineOut(BaseModel):
     dosage: str
     frequency: str
     duration_days: int
+    times_of_day: Optional[str] = None
     start_date: datetime
     notes: Optional[str]
     is_completed: int
@@ -152,6 +155,7 @@ class DailyDoseOut(BaseModel):
     id: int
     medicine_id: int
     dose_date: datetime
+    time_of_day: Optional[str]
     taken: int
     confirmed_at: Optional[datetime]
 

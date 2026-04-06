@@ -1,6 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import appointments, doctors, departments, diagnostics, resources, ai, realtime, symptoms, medicines
+from routers import (
+    appointments,
+    doctors,
+    departments,
+    diagnostics,
+    resources,
+    ai,
+    realtime,
+    symptoms,
+    medicines,
+    patients,
+    admin,
+    clinical
+)
 from auth import auth_router
 from db import engine, Base, AsyncSessionLocal
 from models import *  # Import all models for table creation
@@ -125,6 +138,9 @@ app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(realtime.router, prefix="/realtime", tags=["realtime"])
 app.include_router(symptoms.router, prefix="/symptoms", tags=["symptoms"])
 app.include_router(medicines.router, prefix="/medicines", tags=["medicines"])
+app.include_router(patients.router, prefix="/api/patients", tags=["patients"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(clinical.router, prefix="/api/clinical", tags=["clinical"])
 
 
 @app.get("/health")

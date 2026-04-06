@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import { authService } from "../lib/auth";
+import PatientAnalysisPanel from "../components/PatientAnalysisPanel";
 
 interface Appointment {
   id: number;
@@ -13,6 +14,7 @@ interface Appointment {
   symptoms: string;
   user_id: number;
   status?: string;
+  diagnosis?: string;
   completed_at?: string;
 }
 
@@ -80,6 +82,27 @@ export default function DoctorConsole() {
   const [completingAppointmentId, setCompletingAppointmentId] = useState<
     number | null
   >(null);
+  
+  // AI Prescribing State
+  const [useAI, setUseAI] = useState(true);
+  const [aiNotes, setAiNotes] = useState("");
+
+  const [analysisPatient, setAnalysisPatient] = useState<{
+    patientId: number;
+    doctorId: number;
+  } | null>(null);
+  
+  // Vitals State
+  const [recordingVitalsFor, setRecordingVitalsFor] = useState<Appointment | null>(null);
+  const [vitalsForm, setVitalsForm] = useState({ bp_systolic: "", bp_diastolic: "", blood_sugar: "", heart_rate: "" });
+  
+  // Lab Test Modal State
+  const [orderingLabFor, setOrderingLabFor] = useState<Appointment | null>(null);
+  const [labForm, setLabForm] = useState({ test_name: "", reason: "" });
+
+  // Diagnosis Modal State (shown when completing appointment)
+  const [completingFor, setCompletingFor] = useState<Appointment | null>(null);
+  const [diagnosisText, setDiagnosisText] = useState("");
 
   // Check if user is a doctor
   useEffect(() => {
@@ -167,15 +190,38 @@ export default function DoctorConsole() {
 
     try {
       setPrescribing(true);
-      await api.post("/medicines/", {
-        medicine_name: formData.medicine_name,
-        dosage: formData.dosage,
-        frequency: formData.frequency,
-        duration_days: formData.duration_days,
-        user_id: selectedAppointment.user_id,
-        appointment_id: selectedAppointment.id,
-        notes: formData.notes,
-      });
+      
+      if (useAI) {
+        if (!aiNotes) {
+          alert("Please enter prescription notes.");
+          setPrescribing(false);
+          return;
+        }
+        const res = await api.post("/ai/parse-prescription", { doctor_notes: aiNotes });
+        const scripts = res.data.prescriptions || [];
+        for (const p of scripts) {
+           await api.post("/medicines/", {
+              medicine_name: p.medicine_name,
+              dosage: p.dosage,
+              frequency: `${p.frequency_per_day}x Daily`,
+              duration_days: p.duration_days,
+              times_of_day: Array.isArray(p.times) ? p.times.join(",") : "Morning",
+              user_id: selectedAppointment.user_id,
+              appointment_id: selectedAppointment.id,
+              notes: p.instructions
+           });
+        }
+      } else {
+        await api.post("/medicines/", {
+          medicine_name: formData.medicine_name,
+          dosage: formData.dosage,
+          frequency: formData.frequency,
+          duration_days: formData.duration_days,
+          user_id: selectedAppointment.user_id,
+          appointment_id: selectedAppointment.id,
+          notes: formData.notes,
+        });
+      }
 
       setSuccessMsg(`✅ Medicine prescribed to ${selectedAppointment.name}`);
       setShowPrescriptionModal(false);
@@ -199,6 +245,43 @@ export default function DoctorConsole() {
     }
   };
 
+  const handleRecordVitals = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recordingVitalsFor) return;
+    try {
+      await api.post("/api/clinical/vitals", {
+        patient_id: recordingVitalsFor.user_id,
+        bp_systolic: parseInt(vitalsForm.bp_systolic) || null,
+        bp_diastolic: parseInt(vitalsForm.bp_diastolic) || null,
+        blood_sugar: parseFloat(vitalsForm.blood_sugar) || null,
+        heart_rate: parseInt(vitalsForm.heart_rate) || null,
+      });
+      alert("Vitals successfully recorded for AI analysis!");
+      setRecordingVitalsFor(null);
+      setVitalsForm({ bp_systolic: "", bp_diastolic: "", blood_sugar: "", heart_rate: "" });
+    } catch (err) {
+      alert("Failed to submit vitals.");
+    }
+  };
+
+  const handleOrderLabTest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderingLabFor) return;
+    try {
+      await api.post("/api/diagnostics/prescribe", {
+        patient_id: orderingLabFor.user_id,
+        doctor_id: authService.getUser()?.id || 0,
+        test_name: labForm.test_name,
+        reason: labForm.reason,
+      });
+      alert("Lab test ordered successfully!");
+      setOrderingLabFor(null);
+      setLabForm({ test_name: "", reason: "" });
+    } catch (err: any) {
+      alert("Failed to order lab test.");
+    }
+  };
+
   const openPrescriptionModal = (appointment: Appointment) => {
     setSelectedAppointment(appointment);
     setShowPrescriptionModal(true);
@@ -207,9 +290,13 @@ export default function DoctorConsole() {
   const handleCompleteAppointment = async (appointmentId: number) => {
     try {
       setCompletingAppointmentId(appointmentId);
-      await api.patch(`/appointments/${appointmentId}/complete`);
+      await api.patch(`/appointments/${appointmentId}/complete`, {
+        diagnosis: diagnosisText || null,
+      });
 
-      setSuccessMsg("✅ Appointment marked as completed");
+      setSuccessMsg("✅ Appointment completed with diagnosis!");
+      setCompletingFor(null);
+      setDiagnosisText("");
 
       // Refresh data
       fetchData();
@@ -383,18 +470,44 @@ export default function DoctorConsole() {
                     </div>
                     <div className="flex gap-2 flex-col">
                       {appointment.status !== "completed" && (
+                        <>
                         <button
                           onClick={() => openPrescriptionModal(appointment)}
                           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm"
                         >
                           💊 Add Prescription
                         </button>
+                        <button
+                          onClick={() =>
+                            setAnalysisPatient({
+                              patientId: appointment.user_id,
+                              doctorId: user?.id || 0,
+                            })
+                          }
+                          className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all font-semibold text-sm shadow-md"
+                        >
+                          🧠 AI Analysis
+                        </button>
+                        <button
+                          onClick={() => setRecordingVitalsFor(appointment)}
+                          className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all font-semibold text-sm shadow-md"
+                        >
+                          ❤️ Record Vitals
+                        </button>
+                        <button
+                          onClick={() => setOrderingLabFor(appointment)}
+                          className="px-4 py-2 bg-gradient-to-r from-teal-500 to-emerald-600 text-white rounded-lg hover:from-teal-600 hover:to-emerald-700 transition-all font-semibold text-sm shadow-md"
+                        >
+                          🧪 Order Lab Test
+                        </button>
+                        </>
                       )}
                       {appointment.status !== "completed" && (
                         <button
-                          onClick={() =>
-                            handleCompleteAppointment(appointment.id)
-                          }
+                          onClick={() => {
+                            setCompletingFor(appointment);
+                            setDiagnosisText("");
+                          }}
                           disabled={completingAppointmentId === appointment.id}
                           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold text-sm disabled:opacity-50"
                         >
@@ -402,6 +515,11 @@ export default function DoctorConsole() {
                             ? "Completing..."
                             : "✅ Complete"}
                         </button>
+                      )}
+                      {appointment.status === "completed" && appointment.diagnosis && (
+                        <div className="mt-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm">
+                          <span className="font-bold text-emerald-700">🩺 Diagnosis:</span> <span className="text-slate-700">{appointment.diagnosis}</span>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -576,11 +694,39 @@ export default function DoctorConsole() {
       {showPrescriptionModal && selectedAppointment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl p-8 max-w-lg w-full max-h-96 overflow-y-auto">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">
-              Prescribe Medicine for {selectedAppointment.name}
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-gray-800">
+                Prescribe Medicine for {selectedAppointment.name}
+              </h2>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setUseAI(true)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${useAI ? "bg-indigo-600 text-white" : "bg-gray-200 text-gray-600"}`}
+                >⚡ AI Parse</button>
+                <button 
+                  onClick={() => setUseAI(false)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${!useAI ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"}`}
+                >✍️ Manual</button>
+              </div>
+            </div>
 
-            <div className="space-y-4 mb-6">
+            {useAI ? (
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-semibold text-indigo-700 mb-2">
+                    🤖 Groq Llama 3.3 Strict JSON Parser
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">Simply dictate the prescriptions naturally. The AI will parse out the dose, schedule, time of day mappings, and frequency instantly.</p>
+                  <textarea
+                    value={aiNotes}
+                    onChange={(e) => setAiNotes(e.target.value)}
+                    placeholder="e.g. Patient has a severe headache. Take Dolo 500mg morning and night for 3 days after food..."
+                    className="w-full px-4 py-3 border-2 border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 h-32"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Medicine Name *
@@ -664,9 +810,10 @@ export default function DoctorConsole() {
                   placeholder="e.g., Take with food, before bedtime"
                   rows={2}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -684,6 +831,157 @@ export default function DoctorConsole() {
                 {prescribing ? "Prescribing..." : "✅ Prescribe"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Diagnosis Modal (shown when completing appointment) */}
+      {completingFor && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-green-700">
+                🩺 Complete Appointment
+              </h3>
+              <button onClick={() => setCompletingFor(null)} className="text-gray-400 font-bold hover:text-gray-600">✕</button>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">Patient: <span className="font-bold">{completingFor.name}</span></p>
+            {completingFor.symptoms && (
+              <p className="text-sm text-gray-500 mb-4">💬 Symptoms: {completingFor.symptoms}</p>
+            )}
+            <div className="mb-4">
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Diagnosis / What is the patient suffering from? *
+              </label>
+              <textarea
+                value={diagnosisText}
+                onChange={(e) => setDiagnosisText(e.target.value)}
+                placeholder="e.g., Acute viral fever with mild dehydration, Migraine with aura, Type 2 Diabetes Mellitus..."
+                className="w-full px-4 py-3 border-2 border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 h-28"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCompletingFor(null)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleCompleteAppointment(completingFor.id)}
+                disabled={!diagnosisText.trim()}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold disabled:opacity-50"
+              >
+                ✅ Complete with Diagnosis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vitals Modal */}
+      {recordingVitalsFor && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-orange-600">
+                ❤️ Record Latest Vitals
+              </h3>
+              <button onClick={() => setRecordingVitalsFor(null)} className="text-gray-400 font-bold hover:text-gray-600">✕</button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4 text-center">Add critical measurements to feed perfectly into the AI Context window.</p>
+            <form onSubmit={handleRecordVitals} className="space-y-4">
+               <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Systolic BP</label>
+                    <input type="number" placeholder="120" className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-orange-500" value={vitalsForm.bp_systolic} onChange={e => setVitalsForm({...vitalsForm, bp_systolic: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Diastolic BP</label>
+                    <input type="number" placeholder="80" className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-orange-500" value={vitalsForm.bp_diastolic} onChange={e => setVitalsForm({...vitalsForm, bp_diastolic: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Heart Rate (bpm)</label>
+                    <input type="number" placeholder="72" className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-orange-500" value={vitalsForm.heart_rate} onChange={e => setVitalsForm({...vitalsForm, heart_rate: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Blood Sugar (mg/dL)</label>
+                    <input type="number" placeholder="95.5" className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-orange-500" value={vitalsForm.blood_sugar} onChange={e => setVitalsForm({...vitalsForm, blood_sugar: e.target.value})} />
+                  </div>
+               </div>
+               <button type="submit" className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 font-bold mt-4 shadow-md">
+                 Save Vitals
+               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lab Order Modal */}
+      {orderingLabFor && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-800">
+                🧪 Order Lab Test
+              </h3>
+              <button
+                onClick={() => setOrderingLabFor(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Patient: <span className="font-semibold">{orderingLabFor.name}</span>
+            </p>
+            <form onSubmit={handleOrderLabTest} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Test Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., Complete Blood Count (CBC)"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  value={labForm.test_name}
+                  onChange={(e) => setLabForm({ ...labForm, test_name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Clinical Reason
+                </label>
+                <textarea
+                  required
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none h-24"
+                  value={labForm.reason}
+                  onChange={(e) => setLabForm({ ...labForm, reason: e.target.value })}
+                />
+              </div>
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full bg-teal-600 text-white py-2 rounded-lg hover:bg-teal-700 font-semibold"
+                >
+                  Confirm Order
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Patient Analysis Modal */}
+      {analysisPatient && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <PatientAnalysisPanel
+              patientId={analysisPatient.patientId}
+              doctorId={analysisPatient.doctorId}
+              onClose={() => setAnalysisPatient(null)}
+            />
           </div>
         </div>
       )}

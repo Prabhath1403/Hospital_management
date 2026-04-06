@@ -20,6 +20,8 @@ import Dashboard from "./pages/Dashboard";
 import AppointmentBooking from "./pages/AppointmentBooking";
 import SymptomsChecker from "./pages/SymptomsChecker";
 import DoctorConsole from "./pages/DoctorConsole";
+import LabDashboard from "./pages/LabDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import { authService } from "./lib/auth";
 import { getTheme, setTheme, toggleTheme } from "./lib/theme";
 
@@ -75,36 +77,40 @@ function Nav() {
           >
             Home
           </Link>
-          <Link
-            to="/doctors"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
-          >
-            Doctors
-          </Link>
-          <Link
-            to="/departments"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
-          >
-            Departments
-          </Link>
-          <Link
-            to="/symptoms"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
-          >
-            Symptoms
-          </Link>
-          <Link
-            to="/diagnostics"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
-          >
-            Tests
-          </Link>
-          <Link
-            to="/resources"
-            className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
-          >
-            Resources
-          </Link>
+          {user?.role !== "admin" && (
+            <>
+              <Link
+                to="/doctors"
+                className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
+              >
+                Doctors
+              </Link>
+              <Link
+                to="/departments"
+                className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
+              >
+                Departments
+              </Link>
+              <Link
+                to="/symptoms"
+                className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
+              >
+                Symptoms
+              </Link>
+              <Link
+                to="/diagnostics"
+                className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
+              >
+                Tests
+              </Link>
+              <Link
+                to="/resources"
+                className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition"
+              >
+                Resources
+              </Link>
+            </>
+          )}
         </nav>
 
         <div className="flex gap-2 items-center">
@@ -132,10 +138,26 @@ function Nav() {
                   📊 Doctor Console
                 </Link>
               )}
+              {user?.role === "lab_technician" && (
+                <Link
+                  to="/lab-dashboard"
+                  className="hidden sm:inline-block px-3 py-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 transition font-bold outline outline-1 outline-cyan-500 rounded-lg bg-cyan-900/30"
+                >
+                  🔬 Lab Tech Console
+                </Link>
+              )}
+              {user?.role === "admin" && (
+                <Link
+                  to="/admin-dashboard"
+                  className="hidden sm:inline-block px-3 py-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 transition font-bold outline outline-1 outline-purple-500 rounded-lg bg-purple-900/30"
+                >
+                  🛡️ Admin Panel
+                </Link>
+              )}
               <span className="text-xs text-slate-400 hidden sm:inline">
                 Hi, {user?.name}
               </span>
-              {user?.role !== "doctor" && (
+              {user?.role === "patient" && (
                 <button
                   onClick={handleBookAppointment}
                   className="btn-primary text-xs"
@@ -200,11 +222,38 @@ function PatientRoute({ children }: { children: React.ReactElement }) {
     );
   }
 
-  // Redirect doctors away from patient routes
+  // Redirect staff away from patient routes
   if (user?.role === "doctor") {
     return <Navigate to="/doctor-console" replace />;
   }
+  if (user?.role === "lab_technician") {
+    return <Navigate to="/lab-dashboard" replace />;
+  }
+  if (user?.role === "admin") {
+    return <Navigate to="/admin-dashboard" replace />;
+  }
 
+  return children;
+}
+
+function LabRoute({ children }: { children: React.ReactElement }) {
+  const isAuthenticated = authService.isAuthenticated();
+  const user = authService.getUser();
+  const location = useLocation();
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role !== "lab_technician") return <Navigate to="/" replace />;
+  
+  return children;
+}
+
+function AdminRoute({ children }: { children: React.ReactElement }) {
+  const isAuthenticated = authService.isAuthenticated();
+  const user = authService.getUser();
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role !== "admin") return <Navigate to="/" replace />;
+  
   return children;
 }
 
@@ -292,6 +341,22 @@ export default function App() {
               <ProtectedRoute>
                 <DoctorConsole />
               </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/lab-dashboard"
+            element={
+              <LabRoute>
+                <LabDashboard />
+              </LabRoute>
+            }
+          />
+          <Route
+            path="/admin-dashboard"
+            element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
             }
           />
           <Route path="/ai-symptoms" element={<SymptomsChecker />} />

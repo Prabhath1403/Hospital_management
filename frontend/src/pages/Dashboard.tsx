@@ -3,6 +3,7 @@ import { authService } from "../lib/auth";
 import { api } from "../lib/api";
 import { useEffect, useState } from "react";
 import MedicineTracker from "../components/MedicineTracker";
+import HealthRecords from "../components/HealthRecords";
 
 interface Appointment {
   id: number;
@@ -207,6 +208,9 @@ export default function Dashboard() {
 
       {!isDoctor && (
         <>
+          {/* Health Records & Conditions */}
+          <HealthRecords />
+
           {/* Medicine Tracker Section */}
           <div className="mt-8">
             <MedicineTracker />

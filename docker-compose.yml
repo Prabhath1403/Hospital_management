@@ -1,75 +1,92 @@
 services:
   frontend:
-    build: ../frontend
+    build: ./frontend
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "8080"]
     environment:
       - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
       - VITE_WS_URL=${VITE_WS_URL:-ws://localhost:9001}
     volumes:
-      - ../frontend:/app
+      - ./frontend:/app
       - /app/node_modules
     ports:
       - "${FRONTEND_PORT:-8080}:8080"
     depends_on:
       - backend
+
   backend:
-    build: ../backend
+    build: ./backend
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://app:app@host.docker.internal:5432/health}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/health}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_BACKEND_URL=${CELERY_BACKEND_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
-      - ALGORITHM=${ALGORITHM:-HS256}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - JWT_SECRET=${JWT_SECRET:-devsecret}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - AMQP_URL=${AMQP_URL:-amqp://rabbitmq}
     volumes:
-      - ../backend:/app
+      - ./backend:/app
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
-      - redis
-  worker:
-    build: ../backend
-    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info"]
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
-      - CELERY_BACKEND_URL=${CELERY_BACKEND_URL:-redis://redis:6379/0}
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://app:app@host.docker.internal:5432/health}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - AMQP_URL=${AMQP_URL:-amqp://rabbitmq}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - backend
+      - postgres
       - redis
       - rabbitmq
-  realtime:
-    build: ../realtime
+
+  worker:
+    build: ./backend
+    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info"]
     environment:
-      - AMQP_URL=amqp://rabbitmq
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/health}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_BACKEND_URL=${CELERY_BACKEND_URL:-redis://redis:6379/0}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - AMQP_URL=${AMQP_URL:-amqp://rabbitmq}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - backend
+      - postgres
+      - redis
+      - rabbitmq
+
+  realtime:
+    build: ./realtime
+    environment:
+      - PORT=9001
+      - AMQP_URL=${AMQP_URL:-amqp://rabbitmq}
     ports:
       - "${REALTIME_PORT:-9001}:9001"
     depends_on:
       - rabbitmq
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-health}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   redis:
     image: redis:7
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+
   rabbitmq:
     image: rabbitmq:3-management
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"
-      - "15672:15672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
 volumes:
+  postgres_data:
   redis_data:
   rabbitmq_data:

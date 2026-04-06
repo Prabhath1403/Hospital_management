@@ -82,7 +82,13 @@ async def upcoming_appointments(session: AsyncSession = Depends(get_session), cu
     """Return upcoming appointments for the authenticated patient ordered by datetime."""
     now = dt.datetime.utcnow()
     res = await session.execute(
-        select(Appointment).where(and_(Appointment.user_id == current_user.id, Appointment.datetime >= now)).order_by(Appointment.datetime.asc())
+        select(Appointment).where(
+            and_(
+                Appointment.user_id == current_user.id, 
+                Appointment.datetime >= now,
+                Appointment.status == "scheduled"
+            )
+        ).order_by(Appointment.datetime.asc())
     )
     return res.scalars().all()
 
@@ -98,7 +104,7 @@ async def doctor_appointments(session: AsyncSession = Depends(get_session), curr
     doctor_result = await session.execute(
         select(Doctor).where(Doctor.user_id == current_user.id)
     )
-    doctor = doctor_result.scalar_one_or_none()
+    doctor = doctor_result.scalars().first()
     
     if not doctor:
         # Return empty list if no doctor record found
@@ -114,13 +120,14 @@ async def doctor_appointments(session: AsyncSession = Depends(get_session), curr
     return res.scalars().all()
 
 
-@router.patch("/{appointment_id}/complete", response_model=AppointmentOut)
+@router.patch("/{appointment_id}/complete")
 async def complete_appointment(
     appointment_id: int,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    body: dict = None,
 ):
-    """Mark an appointment as completed (doctor only)."""
+    """Mark appointment as completed with an optional diagnosis."""
     if current_user.role != "doctor":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -131,7 +138,7 @@ async def complete_appointment(
     doctor_result = await session.execute(
         select(Doctor).where(Doctor.user_id == current_user.id)
     )
-    doctor = doctor_result.scalar_one_or_none()
+    doctor = doctor_result.scalars().first()
     
     if not doctor:
         raise HTTPException(
@@ -163,8 +170,12 @@ async def complete_appointment(
     
     appointment.status = "completed"
     appointment.completed_at = dt.datetime.utcnow()
+    
+    # Save diagnosis if provided
+    if body and body.get("diagnosis"):
+        appointment.diagnosis = body["diagnosis"]
+    
     session.add(appointment)
     await session.commit()
     await session.refresh(appointment)
     return appointment
-

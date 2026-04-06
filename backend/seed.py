@@ -17,6 +17,25 @@ async def seed():
         ALTER TABLE IF EXISTS appointments
         ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
         """))
+        await conn.execute(text("""
+        ALTER TABLE IF EXISTS appointments
+        ADD COLUMN IF NOT EXISTS diagnosis TEXT;
+        """))
+        # Add new fields for Phase 8 AI Prescriptions
+        await conn.execute(text("""
+        ALTER TABLE IF EXISTS users
+        ADD COLUMN IF NOT EXISTS date_of_birth DATE,
+        ADD COLUMN IF NOT EXISTS gender VARCHAR,
+        ADD COLUMN IF NOT EXISTS blood_group VARCHAR;
+        """))
+        await conn.execute(text("""
+        ALTER TABLE IF EXISTS medicines
+        ADD COLUMN IF NOT EXISTS times_of_day VARCHAR;
+        """))
+        await conn.execute(text("""
+        ALTER TABLE IF EXISTS daily_doses
+        ADD COLUMN IF NOT EXISTS time_of_day VARCHAR;
+        """))
 
     async with AsyncSessionLocal() as session:
         # Create doctor user accounts if they don't exist
@@ -28,6 +47,32 @@ async def seed():
         
         docs = []
         password_hash = pwd_context.hash("123456789")
+        
+        # Add Admin
+        admin_user = await session.execute(select(User).where(User.email == "admin@hospital.com"))
+        if not admin_user.scalars().first():
+            admin = User(
+                name="System Admin",
+                email="admin@hospital.com",
+                password_hash=password_hash,
+                phone="000-0000",
+                role="admin"
+            )
+            session.add(admin)
+            await session.flush()
+        
+        # Add Lab Technician
+        tech_user = await session.execute(select(User).where(User.email == "tech@hospital.com"))
+        if not tech_user.scalars().first():
+            lab_tech = User(
+                name="Sarah (Lab Technician)",
+                email="tech@hospital.com",
+                password_hash=password_hash,
+                phone="555-0199",
+                role="lab_technician"
+            )
+            session.add(lab_tech)
+            await session.flush()
         
         for doc_info in doctor_data:
             # Check if doctor user already exists

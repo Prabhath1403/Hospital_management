@@ -31,6 +31,7 @@ async def prescribe_medicine(
         dosage=payload.dosage,
         frequency=payload.frequency,
         duration_days=payload.duration_days,
+        times_of_day=payload.times_of_day,
         notes=payload.notes,
         start_date=dt.datetime.utcnow(),
     )
@@ -137,6 +138,7 @@ async def doctor_get_prescribed_medicines(
             "dosage": med.dosage,
             "frequency": med.frequency,
             "duration_days": med.duration_days,
+            "times_of_day": med.times_of_day,
             "start_date": med.start_date,
             "created_at": med.created_at,
             "is_completed": med.is_completed,
@@ -233,10 +235,11 @@ async def get_medicine_daily_doses(
     return result.scalars().all()
 
 
-@router.post("/{medicine_id}/daily-doses/confirm", response_model=dict)
+@router.post("/{medicine_id}/daily-doses/confirm")
 async def confirm_daily_dose(
     medicine_id: int,
-    dose_date_str: str,  # Format: YYYY-MM-DD
+    dose_date_str: str,
+    time_of_day: str = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -268,6 +271,7 @@ async def confirm_daily_dose(
             and_(
                 DailyDose.medicine_id == medicine_id,
                 DailyDose.dose_date == dose_date,
+                DailyDose.time_of_day == time_of_day,
             )
         )
     )
@@ -277,6 +281,7 @@ async def confirm_daily_dose(
         daily_dose = DailyDose(
             medicine_id=medicine_id,
             dose_date=dose_date,
+            time_of_day=time_of_day,
             taken=1,
             confirmed_at=dt.datetime.utcnow(),
         )
